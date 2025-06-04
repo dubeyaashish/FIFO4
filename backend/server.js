@@ -1,188 +1,23 @@
 // server.js
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2');
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const jwt = require('jsonwebtoken'); // JWT library
 const app = express();
-const fs = require('fs').promises;
-const path = require('path');
 const port = process.env.PORT || 5000;
-const secretKey = 'ef4w3fgtuwqw3543tthu6'; 
-const multer = require('multer');
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Set the absolute path to your pictures folder
-    cb(null, '/home/ruuduyk/public_html/QCM/pictures');
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
-const upload = multer({ storage: storage });
-const pdfStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    // Set the absolute path to your PDFs folder
-    cb(null, '/home/ruuduyk/public_html/QCM/pdfs');
-  },
-  filename: function (req, file, cb) {
-    // Use document ID as filename to make it consistent
-    cb(null, `${req.body.documentId}.pdf`);
-  }
-});
-const uploadPdf = multer({ storage: pdfStorage });
+const path = require('path');
+const fs = require('fs').promises;
+const db = require('./db');
+const authRoutes = require('./routes/authRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
 
 // Middleware
 app.use(express.json());
 app.use(cors());
 
-// Create a connection pool to MariaDB
-const db = mysql.createConnection({
-  host: 'itppg.com',
-  user: 'misppg_lg',
-  password: '4xs56zssb5bxCXfvZSjJ',
-  database: 'misppg_lg',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
+// Database connection handled in db.js
 
-// Connect to the database
-db.connect(err => {
-    if (err) {
-      console.error('Error connecting to the database:', err);
-      return;
-    }
-    console.log('Connected to the database');
-  });
-  
-  // Middleware for JSON parsing
-  app.use(express.json());
-
-// =========================== Register Endpoint ===========================
-app.post('/register', async (req, res) => {
-  const { email, fullName, department, employeeId, password, role } = req.body;
-
-  try {
-    const checkQuery = `SELECT * FROM InventoryTrackLogin WHERE email = ? OR employee_id = ?`;
-    const [existingUser] = await db.promise().query(checkQuery, [email, employeeId]);
-
-    if (existingUser.length > 0) {
-      return res.status(400).json({ error: 'Email or Employee ID already exists' });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const qrToken = crypto.randomBytes(32).toString('hex');
-
-    const sql = `
-      INSERT INTO InventoryTrackLogin (email, full_name, department, employee_id, password_hash, qr_token, role)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-    await db.promise().query(sql, [email, fullName, department, employeeId, passwordHash, qrToken, role]);
-
-    res.status(201).json({ message: 'User registered successfully', qrToken });
-  } catch (error) {
-    console.error('Error during registration:', error);
-    res.status(500).json({ error: 'Registration failed' });
-  }
-});
-
-// =========================== Login Endpoint ===========================
-app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    const sql = `SELECT * FROM InventoryTrackLogin WHERE email = ?`;
-    const [user] = await db.promise().query(sql, [email]);
-
-    if (user.length === 0) {
-      return res.status(400).json({ error: 'Invalid email or password' });
-    }
-
-    const foundUser = user[0];
-    const isMatch = await bcrypt.compare(password, foundUser.password_hash);
-
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Invalid email or password' });
-    }
-
-    // Update last_logged_in
-    const updateSql = `UPDATE InventoryTrackLogin SET last_logged_in = NOW() WHERE id = ?`;
-    await db.promise().query(updateSql, [foundUser.id]);
-
-    // Generate a JWT token
-    const token = jwt.sign(
-      {
-        userId: foundUser.id,
-        email: foundUser.email,
-        userName: foundUser.full_name,
-        role: foundUser.role, // Include the user's role in the token payload
-      },
-      secretKey,
-      { expiresIn: '6h' }
-    );
-
-    res.status(200).json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: foundUser.id,
-        email: foundUser.email,
-        userName: foundUser.full_name,
-        role: foundUser.role, // Include the user's role in the response
-      },
-    });
-  } catch (error) {
-    console.error('Error during login:', error);
-    res.status(500).json({ error: 'Login failed' });
-  }
-});
-// =========================== Middleware to Verify Token ===========================
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Authorization header missing or token missing' });
-  }
-
-  jwt.verify(token, secretKey, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Token is invalid or expired' });
-
-    req.user = user; // Attach user data to the request object
-    next();
-  });
-};
-
-// =========================== Protected Route Example ===========================
-app.get('/protected', authenticateToken, (req, res) => {
-  res.json({ message: 'Access granted to protected route', user: req.user });
-});
-
-  // ------------------------------------------------------------------
-  app.get('/user-details', authenticateToken, async (req, res) => {
-    try {
-      const userId = req.user.userId; // Extracted from JWT
-      console.log("Decoded User ID:", userId); // Debugging
-  
-      const sql = "SELECT full_name, department FROM InventoryTrackLogin WHERE id = ?";
-      const [results] = await db.promise().query(sql, [userId]);
-  
-      if (results.length === 0) {
-        return res.status(404).json({ error: "User not found" });
-      }
-  
-      res.status(200).json({
-        fullName: results[0].full_name,
-        department: results[0].department,
-      });
-    } catch (error) {
-      console.error("Error fetching user details:", error);
-      res.status(500).json({ error: "Failed to fetch user details" });
-    }
-  });
+// Use routers
+app.use(authRoutes.router);
+app.use(uploadRoutes);
   
   const logSaleCoRequest = async (buttonId, userName, action, documentId = null, snNumber = null, additionalData = {}) => {
     try {
@@ -1069,54 +904,6 @@ app.get('/documents', async (req, res) => {
 });
 
 
-// --------------------
-// Image Upload Endpoint
-// --------------------
-app.post('/upload-image', upload.single('image'), async (req, res) => {
-  console.log("=== /upload-image called ===");
-  console.log("Request body:", req.body);
-  console.log("Request file:", req.file);
-  
-  // Expect an extra "type" field in the request body
-  const { sn_number, type } = req.body;
-  
-  if (!sn_number) {
-    return res.status(400).json({ error: 'Serial number is required' });
-  }
-  if (!req.file) {
-    return res.status(400).json({ error: 'No image file uploaded' });
-  }
-  
-  // Construct the public URL using your domain
-  const imageUrl = `https://ruu-d.com/QCM/pictures/${req.file.filename}`;
-  console.log("Constructed image URL:", imageUrl);
-  
-  try {
-    let sql = "";
-    // Check the type flag to determine which column to update.
-    if (type === "nc1") {
-      // Update nc_image1 column in the Nc_table
-      sql = "UPDATE Nc_table SET nc_image1 = ? WHERE sn_number = ?";
-    } else if (type === "nc2") {
-      // Update nc_image2 column in the Nc_table
-      sql = "UPDATE Nc_table SET nc_image2 = ? WHERE sn_number = ?";
-    } else {
-      // Fallback: update the default image column in SaleCoRequests
-      sql = "UPDATE SaleCoRequests SET image = ? WHERE sn_number = ?";
-    }
-    
-    const [result] = await db.promise().query(sql, [imageUrl, sn_number]);
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: "Record not found for given serial number." });
-    }
-    res.status(200).json({ message: "Image uploaded successfully", imageUrl });
-  } catch (error) {
-    console.error("Error updating DB in /upload-image:", error);
-    res.status(500).json({ error: "Failed to upload image", details: error.message });
-  }
-});
-
-
 // Corrected /departments endpoint
 app.get("/departments", async (req, res) => {
   try {
@@ -1126,34 +913,6 @@ app.get("/departments", async (req, res) => {
   } catch (error) {
     console.error("Error fetching departments:", error);
     res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-app.post('/upload-pdf', authenticateToken, uploadPdf.single('pdf'), async (req, res) => {
-  try {
-    const documentId = req.body.documentId; // Ensure documentId is extracted from the request body
-
-    if (!req.file || !documentId) {
-      return res.status(400).json({ error: 'Missing file or document ID' });
-    }
-
-    // Rename the uploaded file to match the documentId
-    const newFileName = `${documentId}.pdf`;
-    const newFilePath = path.join('/home/ruuduyk/public_html/QCM/pdfs', newFileName);
-
-    await fs.rename(req.file.path, newFilePath); // Rename the file on the server
-
-    // Create a fixed URL for the PDF
-    const pdfUrl = `https://ruu-d.com/QCM/pdfs/${newFileName}`;
-
-    // Update the database with the PDF URL
-    const sql = "UPDATE SaleCoRequests SET pdf_url = ? WHERE document_id = ? LIMIT 1";
-    await db.promise().query(sql, [pdfUrl, documentId]);
-
-    res.status(200).json({ message: 'PDF uploaded successfully', pdfUrl });
-  } catch (error) {
-    console.error('Error uploading PDF:', error);
-    res.status(500).json({ error: 'Failed to upload PDF' });
   }
 });
 // New endpoint to fetch all allocated items for a document
@@ -1790,7 +1549,7 @@ app.get('/sale-co/insurance-types', (req, res) => {
     res.status(200).json(results);
   });
 });
-  // Start server
+// Start server
 app.listen(port, () => {
-    console.log(`Server is running on https://localhost:5000${port}`);
-  });
+  console.log(`Server is running on https://localhost:5000${port}`);
+});
