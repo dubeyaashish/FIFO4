@@ -1,0 +1,49 @@
+/* Navbar.css */
+
+/* Replace or add to your existing .navbar rules */
+.navbar {
+  /* Remove any existing static background-color */
+  /* Create a multi-color animated gradient background */
+  background: linear-gradient(270deg, #fbc2eb, #a6c1ee, #cfd9df, #e2ebf0);
+  background-size: 800% 800%;
+  animation: gradientAnimation 15s ease infinite;
+  /* Optional: add padding, border-radius, or box-shadow if desired */
+}
+
+/* Keyframes for the animated gradient */
+@keyframes gradientAnimation {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+.document-btn {
+  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  border: none;
+  color: white;
+  font-weight: bold;
+  padding: 8px 16px;
+  border-radius: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  font-size: 1rem;
+}
+
+.document-btn:hover {
+  background: linear-gradient(135deg, #2575fc, #6a11cb);
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+  /* Remove the movement by commenting out or removing the following line */
+  /* transform: translateY(-2px); */
+}
+
+.document-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(100, 149, 237, 0.5);
+}
+
+

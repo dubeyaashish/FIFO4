@@ -1,0 +1,13 @@
+/* midnight.css */
+
+p {
+  color: black !important;
+}
+/* midnight.css */
+p.text-muted {
+  color: black !important;
+}
+.white-text {
+  color: white !important;
+}
+
