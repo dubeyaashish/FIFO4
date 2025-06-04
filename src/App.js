@@ -9,10 +9,7 @@ import Navbar from './components/Navbar';
 import AdminDashboard from "./pages/AdminDashboard"
 import EditRequestDocument from "./pages/EditRequestDocument";
 import Document from "./pages/Document"
-import QualityAssurance from "./pages/QualityAssurance";
-import Manufacture from "./pages/Manufacture";
 import PdfViewer from "./components/PdfViewer";
-import Environment from "./pages/Environment";
 import "bootswatch/dist/flatly/bootstrap.min.css";
 import 'semantic-ui-css/semantic.min.css';
 import ExternalServiceForm from "./pages/ExternalServiceForm";
@@ -34,9 +31,6 @@ const AppContent = () => {
           <Route path="/" element={<Auth />} />
           <Route path="/saleco" element={<SaleCoRequests />} />
           <Route path="/inventory" element={<InventoryRequests />} />
-          <Route path="/quality-assurance" element={<QualityAssurance />} />
-          <Route path="/manufacture" element={<Manufacture />} />
-          <Route path="/environment" element={<Environment />} />
           <Route path="/qcm" element={<QcmRequests />} /> 
           <Route path="/admin" element={<AdminDashboard />} /> 
           <Route path="/edit-failed-qc" element={<EditRequestDocument />} /> {/* Add this */}

@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import Autosuggest from 'react-autosuggest';
 
 const ExternalServiceForm = () => {
   // Form state for location/company information
@@ -39,11 +38,17 @@ const ExternalServiceForm = () => {
 
   // State for insurance type data and suggestions
   const [insuranceData, setInsuranceData] = useState([]);
-  const [suggestions, setSuggestions] = useState({
+  const [filteredSuggestions, setFilteredSuggestions] = useState({
     productCode: [],
     warrantyPeriod: [],
     serviceFrequency: [],
     warrantyParts: [],
+  });
+  const [showSuggestions, setShowSuggestions] = useState({
+    productCode: false,
+    warrantyPeriod: false,
+    serviceFrequency: false,
+    warrantyParts: false,
   });
 
   // Fetch insurance type data
@@ -58,7 +63,7 @@ const ExternalServiceForm = () => {
         setInsuranceData(data);
       } catch (error) {
         console.error('Error fetching insurance data:', error);
-        setErrorMessage('Could not load insurance data. Using manual input.');
+        setErrorMessage('Could not load insurance data. You can still submit the form manually.');
         setShowErrorMessage(true);
       }
     };
@@ -93,8 +98,6 @@ const ExternalServiceForm = () => {
           }
         });
       });
-    } else {
-      console.error('jQuery or jquery.Thailand.js not loaded');
     }
   }, [errors]);
 
@@ -133,7 +136,7 @@ const ExternalServiceForm = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Handle form submission
+  // Handle form submission with improved data mapping
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -144,28 +147,42 @@ const ExternalServiceForm = () => {
     setIsSubmitting(true);
 
     try {
+      // Create payload that matches your backend's exact field names
       const payload = {
+        // Customer information (matches your backend fields exactly)
         customerName: contactData.fullName,
         customerAddress: `${locationData.address}, ${locationData.subDistrict}, ${locationData.district}, ${locationData.province}, ${locationData.postalCode}`,
-        phoneNumber: contactData.phoneNumber,
+        phone_number: contactData.phoneNumber,  // Fixed: phone_number not phoneNumber
         email: contactData.email,
+        
+        // Location information
         siteName: locationData.siteName,
         billingAddress: locationData.billingAddress || locationData.address,
-        productCode: contactData.productCode,
-        quantity: parseInt(contactData.quantity),
-        warrantyStartDate: contactData.warrantyStartDate,
-        warrantyPeriod: contactData.warrantyPeriod,
-        warrantyParts: contactData.warrantyParts,
-        serviceFrequency: contactData.serviceFrequency,
-        propertyAddress: contactData.propertyAddress || locationData.address,
+        property_address: contactData.propertyAddress || locationData.address,  // Fixed: property_address not propertyAddress
+        
+        // Product information
+        product_id: contactData.productCode,  // Fixed: product_id not productCode
+        quantity: parseInt(contactData.quantity) || 1,
+        
+        // Warranty information (correct field names)
+        warrantyStartDate: contactData.warrantyStartDate || null,
+        warrantyPeriod: contactData.warrantyPeriod || null,
+        warrantyParts: contactData.warrantyParts || null,
+        serviceFrequency: contactData.serviceFrequency || null,
+        
+        // Request metadata
         requestSource: 'external_form',
         requestType: 'customer_service',
-        timestamp: new Date().toISOString(),
-        requestDetails: ['Customer Service Request from External Form'],
-        remark: `External customer service request. Product: ${contactData.productCode}, Quantity: ${contactData.quantity}`,
         wantDate: new Date().toISOString().split('T')[0],
-        status: 'pending_saleco_review',
+        
+        // Request details as array (your backend expects this)
+        requestDetails: [`Service request for ${contactData.productCode} (Qty: ${contactData.quantity}) at ${locationData.siteName}`],
+        
+        // Remark for additional notes
+        remark: contactData.warrantyParts ? `Warranty parts: ${contactData.warrantyParts}` : 'External customer service request',
       };
+
+      console.log('Sending payload:', payload); // Debug log
 
       const response = await fetch('https://saleco.ruu-d.com/external/service-request', {
         method: 'POST',
@@ -175,12 +192,32 @@ const ExternalServiceForm = () => {
         body: JSON.stringify(payload),
       });
 
+      // Get response text first to see what the server is returning
+      const responseText = await response.text();
+      console.log('Server response status:', response.status); // Debug log
+      console.log('Server response:', responseText); // Debug log
+
       if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+        // Try to parse error details
+        let errorMessage = `Server error: ${response.status}`;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          errorMessage = `Server error: ${response.status} - ${responseText}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      const result = await response.json();
-      setDocumentId(result.documentId || result.requestId || 'Generated');
+      // Parse successful response
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        result = { message: 'Request submitted successfully', success: true };
+      }
+
+      setDocumentId(result.documentId || result.document_id || result.id || `EXT-${Date.now()}`);
       setShowSuccessMessage(true);
 
       // Reset form
@@ -231,14 +268,10 @@ const ExternalServiceForm = () => {
     }
   };
 
-  // Autosuggest handlers
+  // Improved suggestion handling
   const getSuggestions = (value, field) => {
     const inputValue = value.trim().toLowerCase();
-    const inputLength = inputValue.length;
-
-    if (inputLength === 0) {
-      return [];
-    }
+    if (inputValue.length === 0) return [];
 
     const fieldMap = {
       productCode: 'product_code',
@@ -250,116 +283,107 @@ const ExternalServiceForm = () => {
     const uniqueValues = [...new Set(insuranceData.map((item) => item[fieldMap[field]]).filter(Boolean))];
     return uniqueValues.filter((val) =>
       val.toLowerCase().includes(inputValue)
-    );
+    ).slice(0, 10);
   };
 
-  const onSuggestionsFetchRequested = (field) => ({ value }) => {
-    setSuggestions((prev) => ({
-      ...prev,
-      [field]: getSuggestions(value, field),
-    }));
+  const handleInputFocus = (field) => {
+    const suggestions = getSuggestions(contactData[field], field);
+    setFilteredSuggestions(prev => ({ ...prev, [field]: suggestions }));
+    setShowSuggestions(prev => ({ ...prev, [field]: true }));
   };
 
-  const onSuggestionsClearRequested = (field) => () => {
-    setSuggestions((prev) => ({
-      ...prev,
-      [field]: [],
-    }));
+  const handleInputChange = (field, value) => {
+    handleContactChange(field, value);
+    const suggestions = getSuggestions(value, field);
+    setFilteredSuggestions(prev => ({ ...prev, [field]: suggestions }));
+    setShowSuggestions(prev => ({ ...prev, [field]: suggestions.length > 0 }));
   };
 
-  const getSuggestionValue = (suggestion) => suggestion;
-
-  const renderSuggestion = (suggestion) => (
-    <div style={{ padding: '10px', cursor: 'pointer' }}>
-      {suggestion}
-    </div>
-  );
-
-  // Handle productCode suggestion selection
-  const onProductCodeSuggestionSelected = (event, { suggestion }) => {
-    const selectedRecord = insuranceData.find(
-      (item) => item.product_code === suggestion
-    );
-    if (selectedRecord) {
-      setContactData((prev) => ({
-        ...prev,
-        productCode: suggestion,
-        warrantyPeriod: selectedRecord.warranty_period || '',
-        serviceFrequency: selectedRecord.service_period || '',
-        warrantyParts: selectedRecord.insured_part || '',
-      }));
-      setErrors((prev) => ({
-        ...prev,
-        productCode: '',
-        warrantyPeriod: '',
-        serviceFrequency: '',
-        warrantyParts: '',
-      }));
+  const handleSuggestionClick = (field, suggestion) => {
+    if (field === 'productCode') {
+      const selectedRecord = insuranceData.find(item => item.product_code === suggestion);
+      if (selectedRecord) {
+        setContactData(prev => ({
+          ...prev,
+          productCode: suggestion,
+          warrantyPeriod: selectedRecord.warranty_period || '',
+          serviceFrequency: selectedRecord.service_period || '',
+          warrantyParts: selectedRecord.insured_part || '',
+        }));
+      } else {
+        handleContactChange('productCode', suggestion);
+      }
     } else {
-      handleContactChange('productCode', suggestion);
+      handleContactChange(field, suggestion);
     }
+    setShowSuggestions(prev => ({ ...prev, [field]: false }));
+  };
+
+  const hideSuggestions = (field) => {
+    setTimeout(() => {
+      setShowSuggestions(prev => ({ ...prev, [field]: false }));
+    }, 200);
   };
 
   // Styles
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '2rem',
+      backgroundColor: '#f8f9fa',
+      padding: '2rem 1rem',
       fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
     },
-    formContainer: {
-      maxWidth: '1200px',
+    maxWidth: {
+      maxWidth: '1000px',
       margin: '0 auto',
+    },
+    card: {
       backgroundColor: 'white',
-      borderRadius: '15px',
-      boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-      overflow: 'hidden',
+      borderRadius: '8px',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+      border: '1px solid #e9ecef',
+      marginBottom: '1.5rem',
     },
     header: {
-      background: 'linear-gradient(135deg, #2c3e50 0%, #3498db 100%)',
-      color: 'white',
-      padding: '2rem',
       textAlign: 'center',
+      padding: '2rem',
+      borderBottom: '1px solid #e9ecef',
+    },
+    headerIcon: {
+      fontSize: '2rem',
+      marginBottom: '1rem',
+      display: 'block',
     },
     title: {
-      fontSize: '2.5rem',
+      fontSize: '2rem',
+      fontWeight: 'bold',
+      color: '#333',
       marginBottom: '0.5rem',
-      fontWeight: '300',
+      margin: 0,
     },
     subtitle: {
-      opacity: 0.9,
-      fontSize: '1.1rem',
+      color: '#666',
+      fontSize: '1rem',
+      margin: 0,
     },
-    formBody: {
-      padding: '2rem',
-    },
-    section: {
-      marginBottom: '2rem',
-      padding: '1.5rem',
-      border: '2px solid #f8f9fa',
-      borderRadius: '12px',
-      backgroundColor: '#fafafa',
-    },
-    sectionTitle: {
-      color: '#2c3e50',
-      fontSize: '1.3rem',
-      fontWeight: '600',
-      marginBottom: '1.5rem',
-      padding: '0.5rem 0',
-      borderBottom: '2px solid #3498db',
+    sectionHeader: {
+      padding: '1rem 1.5rem',
+      borderBottom: '1px solid #e9ecef',
       display: 'flex',
       alignItems: 'center',
     },
-    icon: {
+    sectionIcon: {
+      fontSize: '1.2rem',
       marginRight: '0.5rem',
-      color: '#3498db',
     },
-    row: {
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-      gap: '1rem',
-      marginBottom: '1rem',
+    sectionTitle: {
+      fontSize: '1.25rem',
+      fontWeight: '600',
+      color: '#333',
+      margin: 0,
+    },
+    sectionContent: {
+      padding: '1.5rem',
     },
     formGroup: {
       marginBottom: '1rem',
@@ -368,57 +392,70 @@ const ExternalServiceForm = () => {
       display: 'block',
       marginBottom: '0.5rem',
       fontWeight: '500',
-      color: '#555',
+      color: '#333',
+      fontSize: '0.9rem',
     },
     input: {
       width: '100%',
       padding: '0.75rem',
       border: '1px solid #ddd',
-      borderRadius: '8px',
+      borderRadius: '6px',
       fontSize: '1rem',
-      transition: 'border-color 0.3s, box-shadow 0.3s',
+      transition: 'border-color 0.2s',
+      boxSizing: 'border-box',
+    },
+    inputFocus: {
+      outline: 'none',
+      borderColor: '#007bff',
+      boxShadow: '0 0 0 2px rgba(0,123,255,0.25)',
     },
     inputError: {
-      borderColor: '#e74c3c',
+      borderColor: '#dc3545',
     },
     textarea: {
       width: '100%',
       padding: '0.75rem',
       border: '1px solid #ddd',
-      borderRadius: '8px',
+      borderRadius: '6px',
       fontSize: '1rem',
       resize: 'vertical',
       minHeight: '80px',
+      boxSizing: 'border-box',
+    },
+    row: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+      gap: '1rem',
+      marginBottom: '1rem',
     },
     errorText: {
-      color: '#e74c3c',
+      color: '#dc3545',
       fontSize: '0.8rem',
       marginTop: '0.25rem',
     },
     submitContainer: {
       textAlign: 'center',
-      padding: '2rem',
+      padding: '1.5rem',
     },
     submitButton: {
-      background: 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)',
+      backgroundColor: '#007bff',
       color: 'white',
       border: 'none',
-      borderRadius: '12px',
-      padding: '1rem 3rem',
-      fontSize: '1.1rem',
-      fontWeight: 'bold',
+      borderRadius: '6px',
+      padding: '0.75rem 2rem',
+      fontSize: '1rem',
+      fontWeight: '500',
       cursor: 'pointer',
-      boxShadow: '0 4px 15px rgba(46, 204, 113, 0.3)',
-      transition: 'transform 0.2s, box-shadow 0.2s',
+      display: 'inline-flex',
+      alignItems: 'center',
+      transition: 'background-color 0.2s',
     },
     submitButtonHover: {
-      transform: 'translateY(-2px)',
-      boxShadow: '0 6px 20px rgba(46, 204, 113, 0.4)',
+      backgroundColor: '#0056b3',
     },
     submitButtonDisabled: {
-      background: '#bdc3c7',
+      backgroundColor: '#6c757d',
       cursor: 'not-allowed',
-      transform: 'none',
     },
     modal: {
       position: 'fixed',
@@ -431,102 +468,127 @@ const ExternalServiceForm = () => {
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 1000,
+      padding: '1rem',
     },
     modalContent: {
       backgroundColor: 'white',
-      borderRadius: '12px',
+      borderRadius: '8px',
       padding: '2rem',
       maxWidth: '500px',
-      width: '90%',
+      width: '100%',
       textAlign: 'center',
-      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
     },
-    successIcon: {
-      color: '#2ecc71',
-      fontSize: '4rem',
+    modalIcon: {
+      fontSize: '3rem',
       marginBottom: '1rem',
+      display: 'block',
     },
-    errorIcon: {
-      color: '#e74c3c',
-      fontSize: '4rem',
+    modalTitle: {
+      fontSize: '1.25rem',
+      fontWeight: '600',
+      color: '#333',
+      marginBottom: '0.5rem',
+    },
+    modalText: {
+      color: '#666',
       marginBottom: '1rem',
+      fontSize: '0.9rem',
+    },
+    referenceBox: {
+      backgroundColor: '#d4edda',
+      border: '1px solid #c3e6cb',
+      color: '#155724',
+      padding: '0.75rem',
+      borderRadius: '6px',
+      margin: '1rem 0',
+      fontSize: '0.9rem',
     },
     closeButton: {
-      background: '#3498db',
+      backgroundColor: '#007bff',
       color: 'white',
       border: 'none',
       borderRadius: '6px',
       padding: '0.5rem 1.5rem',
-      marginTop: '1rem',
       cursor: 'pointer',
+      fontSize: '0.9rem',
+      width: '100%',
     },
-    autosuggestContainer: {
+    closeButtonError: {
+      backgroundColor: '#dc3545',
+    },
+    suggestionContainer: {
       position: 'relative',
     },
-    autosuggestSuggestionsContainer: {
+    suggestionList: {
       position: 'absolute',
       top: '100%',
       left: 0,
       right: 0,
       backgroundColor: 'white',
       border: '1px solid #ddd',
-      borderRadius: '8px',
-      boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
+      borderRadius: '6px',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
       zIndex: 1000,
       maxHeight: '200px',
       overflowY: 'auto',
+      marginTop: '2px',
     },
-    autosuggestSuggestion: {
-      padding: '10px',
+    suggestionItem: {
+      padding: '0.75rem',
       cursor: 'pointer',
+      borderBottom: '1px solid #f8f9fa',
     },
-    autosuggestSuggestionHighlighted: {
-      backgroundColor: '#f0f0f0',
+    suggestionItemHover: {
+      backgroundColor: '#f8f9fa',
+    },
+    spinner: {
+      animation: 'spin 1s linear infinite',
+      display: 'inline-block',
+      marginRight: '0.5rem',
     },
   };
 
   return (
     <div style={styles.container}>
-      <div style={styles.formContainer}>
+      <div style={styles.maxWidth}>
         {/* Header */}
-        <div style={styles.header}>
-          <h1 style={styles.title}>⚙️ Customer Service Request</h1>
-          <p style={styles.subtitle}>
-            Submit your service request and our team will process it promptly
-          </p>
+        <div style={styles.card}>
+          <div style={styles.header}>
+            <span style={styles.headerIcon}>📦</span>
+            <h1 style={styles.title}>Customer Service Request</h1>
+            <p style={styles.subtitle}>Submit your service request and our team will process it promptly</p>
+          </div>
         </div>
 
         {/* Form */}
-        <div style={styles.formBody}>
-          <div>
-            {/* Location/Company Information Section */}
-            <div style={styles.section}>
-              <h2 style={styles.sectionTitle}>
-                <span style={styles.icon}>🏢</span>
-                Sale/ตามศูนย์สาขา/PM-BU
-              </h2>
-
-              <div style={styles.row}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>🏠 1. ชื่อสถานที่เข้างาน *</label>
-                  <input
-                    type="text"
-                    placeholder="Enter site/location name"
-                    value={locationData.siteName}
-                    onChange={(e) => handleLocationChange('siteName', e.target.value)}
-                    style={{
-                      ...styles.input,
-                      ...(errors.siteName ? styles.inputError : {}),
-                    }}
-                  />
-                  {errors.siteName && (
-                    <div style={styles.errorText}>{errors.siteName}</div>
-                  )}
-                </div>
+        <form onSubmit={handleSubmit}>
+          {/* Location Information Section */}
+          <div style={styles.card}>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionIcon}>📍</span>
+              <h2 style={styles.sectionTitle}>Location Information</h2>
+            </div>
+            <div style={styles.sectionContent}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Site/Location Name *</label>
+                <input
+                  type="text"
+                  placeholder="Enter site/location name"
+                  value={locationData.siteName}
+                  onChange={(e) => handleLocationChange('siteName', e.target.value)}
+                  style={{
+                    ...styles.input,
+                    ...(errors.siteName ? styles.inputError : {}),
+                  }}
+                />
+                {errors.siteName && (
+                  <div style={styles.errorText}>{errors.siteName}</div>
+                )}
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>📍 2. รายละเอียดที่อยู่ *</label>
+                <label style={styles.label}>Detailed Address *</label>
                 <textarea
                   placeholder="Enter detailed address"
                   value={locationData.address}
@@ -543,7 +605,7 @@ const ExternalServiceForm = () => {
 
               <div style={styles.row}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>📍 3. รหัสไปรษณีย์ *</label>
+                  <label style={styles.label}>Postal Code *</label>
                   <input
                     id="postalCode"
                     type="text"
@@ -561,7 +623,7 @@ const ExternalServiceForm = () => {
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>4. ตำบล/แขวง *</label>
+                  <label style={styles.label}>Sub-district *</label>
                   <input
                     id="subDistrict"
                     type="text"
@@ -581,7 +643,7 @@ const ExternalServiceForm = () => {
 
               <div style={styles.row}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>5. อำเภอ/เขต *</label>
+                  <label style={styles.label}>District *</label>
                   <input
                     id="district"
                     type="text"
@@ -599,7 +661,7 @@ const ExternalServiceForm = () => {
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>6. จังหวัด *</label>
+                  <label style={styles.label}>Province *</label>
                   <input
                     id="province"
                     type="text"
@@ -618,27 +680,28 @@ const ExternalServiceForm = () => {
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>7. ที่อยู่วางบิล/ที่อยู่บริษัท</label>
+                <label style={styles.label}>Billing Address (optional)</label>
                 <input
                   type="text"
-                  placeholder="Billing address (optional)"
+                  placeholder="Billing address (leave empty to use main address)"
                   value={locationData.billingAddress}
                   onChange={(e) => handleLocationChange('billingAddress', e.target.value)}
                   style={styles.input}
                 />
               </div>
             </div>
+          </div>
 
-            {/* Contact Information Section */}
-            <div style={styles.section}>
-              <h2 style={styles.sectionTitle}>
-                <span style={styles.icon}>👤</span>
-                ข้อมูลผู้ติดต่อ
-              </h2>
-
+          {/* Contact Information Section */}
+          <div style={styles.card}>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionIcon}>👤</span>
+              <h2 style={styles.sectionTitle}>Contact & Product Information</h2>
+            </div>
+            <div style={styles.sectionContent}>
               <div style={styles.row}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>👤 1. ชื่อ - นามสกุล *</label>
+                  <label style={styles.label}>Full Name *</label>
                   <input
                     type="text"
                     placeholder="Full name"
@@ -655,7 +718,7 @@ const ExternalServiceForm = () => {
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>📞 2. เบอร์โทร *</label>
+                  <label style={styles.label}>Phone Number *</label>
                   <input
                     type="tel"
                     placeholder="Phone number"
@@ -672,58 +735,67 @@ const ExternalServiceForm = () => {
                 </div>
               </div>
 
-              <div style={styles.row}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>✉️ 3. อีเมล *</label>
-                  <input
-                    type="email"
-                    placeholder="Email address"
-                    value={contactData.email}
-                    onChange={(e) => handleContactChange('email', e.target.value)}
-                    style={{
-                      ...styles.input,
-                      ...(errors.email ? styles.inputError : {}),
-                    }}
-                  />
-                  {errors.email && (
-                    <div style={styles.errorText}>{errors.email}</div>
-                  )}
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>📦 4. รหัสสินค้า ประเภทเครื่อง *</label>
-                  <Autosuggest
-                    suggestions={suggestions.productCode}
-                    onSuggestionsFetchRequested={onSuggestionsFetchRequested('productCode')}
-                    onSuggestionsClearRequested={onSuggestionsClearRequested('productCode')}
-                    getSuggestionValue={getSuggestionValue}
-                    renderSuggestion={renderSuggestion}
-                    onSuggestionSelected={onProductCodeSuggestionSelected}
-                    inputProps={{
-                      placeholder: 'Product code',
-                      value: contactData.productCode,
-                      onChange: (event, { newValue }) => handleContactChange('productCode', newValue),
-                      style: {
-                        ...styles.input,
-                        ...(errors.productCode ? styles.inputError : {}),
-                      },
-                    }}
-                    theme={{
-                      container: styles.autosuggestContainer,
-                      suggestionsContainer: styles.autosuggestSuggestionsContainer,
-                      suggestion: styles.autosuggestSuggestion,
-                      suggestionHighlighted: styles.autosuggestSuggestionHighlighted,
-                    }}
-                  />
-                  {errors.productCode && (
-                    <div style={styles.errorText}>{errors.productCode}</div>
-                  )}
-                </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Email Address *</label>
+                <input
+                  type="email"
+                  placeholder="Email address"
+                  value={contactData.email}
+                  onChange={(e) => handleContactChange('email', e.target.value)}
+                  style={{
+                    ...styles.input,
+                    ...(errors.email ? styles.inputError : {}),
+                  }}
+                />
+                {errors.email && (
+                  <div style={styles.errorText}>{errors.email}</div>
+                )}
               </div>
 
               <div style={styles.row}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>5. จำนวน *</label>
+                  <label style={styles.label}>Product Code *</label>
+                  <div style={styles.suggestionContainer}>
+                    <input
+                      type="text"
+                      placeholder="Product code"
+                      value={contactData.productCode}
+                      onChange={(e) => handleInputChange('productCode', e.target.value)}
+                      onFocus={() => handleInputFocus('productCode')}
+                      onBlur={() => hideSuggestions('productCode')}
+                      style={{
+                        ...styles.input,
+                        ...(errors.productCode ? styles.inputError : {}),
+                      }}
+                    />
+                    {showSuggestions.productCode && filteredSuggestions.productCode.length > 0 && (
+                      <div style={styles.suggestionList}>
+                        {filteredSuggestions.productCode.map((suggestion, index) => (
+                          <div
+                            key={index}
+                            style={styles.suggestionItem}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSuggestionClick('productCode', suggestion)}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = styles.suggestionItemHover.backgroundColor;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'white';
+                            }}
+                          >
+                            {suggestion}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {errors.productCode && (
+                    <div style={styles.errorText}>{errors.productCode}</div>
+                  )}
+                </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Quantity *</label>
                   <input
                     type="number"
                     min="1"
@@ -739,9 +811,11 @@ const ExternalServiceForm = () => {
                     <div style={styles.errorText}>{errors.quantity}</div>
                   )}
                 </div>
+              </div>
 
+              <div style={styles.row}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>📅 6. วันที่เริ่มประกัน</label>
+                  <label style={styles.label}>Warranty Start Date</label>
                   <input
                     type="date"
                     value={contactData.warrantyStartDate}
@@ -749,96 +823,133 @@ const ExternalServiceForm = () => {
                     style={styles.input}
                   />
                 </div>
+
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Warranty Period</label>
+                  <div style={styles.suggestionContainer}>
+                    <input
+                      type="text"
+                      placeholder="Warranty period"
+                      value={contactData.warrantyPeriod}
+                      onChange={(e) => handleInputChange('warrantyPeriod', e.target.value)}
+                      onFocus={() => handleInputFocus('warrantyPeriod')}
+                      onBlur={() => hideSuggestions('warrantyPeriod')}
+                      style={styles.input}
+                    />
+                    {showSuggestions.warrantyPeriod && filteredSuggestions.warrantyPeriod.length > 0 && (
+                      <div style={styles.suggestionList}>
+                        {filteredSuggestions.warrantyPeriod.map((suggestion, index) => (
+                          <div
+                            key={index}
+                            style={styles.suggestionItem}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSuggestionClick('warrantyPeriod', suggestion)}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = styles.suggestionItemHover.backgroundColor;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'white';
+                            }}
+                          >
+                            {suggestion}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div style={styles.row}>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>🛡️ 7. ระยะเวลารับประกัน</label>
-                  <Autosuggest
-                    suggestions={suggestions.warrantyPeriod}
-                    onSuggestionsFetchRequested={onSuggestionsFetchRequested('warrantyPeriod')}
-                    onSuggestionsClearRequested={onSuggestionsClearRequested('warrantyPeriod')}
-                    getSuggestionValue={getSuggestionValue}
-                    renderSuggestion={renderSuggestion}
-                    inputProps={{
-                      placeholder: 'Warranty period',
-                      value: contactData.warrantyPeriod,
-                      onChange: (event, { newValue }) => handleContactChange('warrantyPeriod', newValue),
-                      style: styles.input,
-                    }}
-                    theme={{
-                      container: styles.autosuggestContainer,
-                      suggestionsContainer: styles.autosuggestSuggestionsContainer,
-                      suggestion: styles.autosuggestSuggestion,
-                      suggestionHighlighted: styles.autosuggestSuggestionHighlighted,
-                    }}
-                  />
+                  <label style={styles.label}>Service Frequency</label>
+                  <div style={styles.suggestionContainer}>
+                    <input
+                      type="text"
+                      placeholder="Service frequency"
+                      value={contactData.serviceFrequency}
+                      onChange={(e) => handleInputChange('serviceFrequency', e.target.value)}
+                      onFocus={() => handleInputFocus('serviceFrequency')}
+                      onBlur={() => hideSuggestions('serviceFrequency')}
+                      style={styles.input}
+                    />
+                    {showSuggestions.serviceFrequency && filteredSuggestions.serviceFrequency.length > 0 && (
+                      <div style={styles.suggestionList}>
+                        {filteredSuggestions.serviceFrequency.map((suggestion, index) => (
+                          <div
+                            key={index}
+                            style={styles.suggestionItem}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSuggestionClick('serviceFrequency', suggestion)}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = styles.suggestionItemHover.backgroundColor;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'white';
+                            }}
+                          >
+                            {suggestion}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>9. จำนวนครั้งการบริการ</label>
-                  <Autosuggest
-                    suggestions={suggestions.serviceFrequency}
-                    onSuggestionsFetchRequested={onSuggestionsFetchRequested('serviceFrequency')}
-                    onSuggestionsClearRequested={onSuggestionsClearRequested('serviceFrequency')}
-                    getSuggestionValue={getSuggestionValue}
-                    renderSuggestion={renderSuggestion}
-                    inputProps={{
-                      placeholder: 'Service frequency',
-                      value: contactData.serviceFrequency,
-                      onChange: (event, { newValue }) => handleContactChange('serviceFrequency', newValue),
-                      style: styles.input,
-                    }}
-                    theme={{
-                      container: styles.autosuggestContainer,
-                      suggestionsContainer: styles.autosuggestSuggestionsContainer,
-                      suggestion: styles.autosuggestSuggestion,
-                      suggestionHighlighted: styles.autosuggestSuggestionHighlighted,
-                    }}
-                  />
+                  <label style={styles.label}>Warranty Parts</label>
+                  <div style={styles.suggestionContainer}>
+                    <input
+                      type="text"
+                      placeholder="Warranty parts"
+                      value={contactData.warrantyParts}
+                      onChange={(e) => handleInputChange('warrantyParts', e.target.value)}
+                      onFocus={() => handleInputFocus('warrantyParts')}
+                      onBlur={() => hideSuggestions('warrantyParts')}
+                      style={styles.input}
+                    />
+                    {showSuggestions.warrantyParts && filteredSuggestions.warrantyParts.length > 0 && (
+                      <div style={styles.suggestionList}>
+                        {filteredSuggestions.warrantyParts.map((suggestion, index) => (
+                          <div
+                            key={index}
+                            style={styles.suggestionItem}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSuggestionClick('warrantyParts', suggestion)}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = styles.suggestionItemHover.backgroundColor;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'white';
+                            }}
+                          >
+                            {suggestion}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div style={styles.formGroup}>
-                <label style={styles.label}>8. อะไหล่ที่รับประกัน</label>
-                <Autosuggest
-                  suggestions={suggestions.warrantyParts}
-                  onSuggestionsFetchRequested={onSuggestionsFetchRequested('warrantyParts')}
-                  onSuggestionsClearRequested={onSuggestionsClearRequested('warrantyParts')}
-                  getSuggestionValue={getSuggestionValue}
-                  renderSuggestion={renderSuggestion}
-                  inputProps={{
-                    placeholder: 'Warranty parts',
-                    value: contactData.warrantyParts,
-                    onChange: (event, { newValue }) => handleContactChange('warrantyParts', newValue),
-                    style: styles.input,
-                  }}
-                  theme={{
-                    container: styles.autosuggestContainer,
-                    suggestionsContainer: styles.autosuggestSuggestionsContainer,
-                    suggestion: styles.autosuggestSuggestion,
-                    suggestionHighlighted: styles.autosuggestSuggestionHighlighted,
-                  }}
-                />
-              </div>
-
-              <div style={styles.formGroup}>
-                <label style={styles.label}>10. ที่อยู่ทรัพย์สิน</label>
+                <label style={styles.label}>Property Address (optional)</label>
                 <input
                   type="text"
-                  placeholder="Property address"
+                  placeholder="Property address (leave empty to use main address)"
                   value={contactData.propertyAddress}
                   onChange={(e) => handleContactChange('propertyAddress', e.target.value)}
                   style={styles.input}
                 />
               </div>
             </div>
+          </div>
 
-            {/* Submit Button */}
+          {/* Submit Button */}
+          <div style={styles.card}>
             <div style={styles.submitContainer}>
               <button
-                type="button"
-                onClick={handleSubmit}
+                type="submit"
                 disabled={isSubmitting}
                 style={{
                   ...styles.submitButton,
@@ -846,45 +957,43 @@ const ExternalServiceForm = () => {
                 }}
                 onMouseEnter={(e) => {
                   if (!isSubmitting) {
-                    Object.assign(e.target.style, styles.submitButtonHover);
+                    e.target.style.backgroundColor = styles.submitButtonHover.backgroundColor;
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!isSubmitting) {
-                    Object.assign(e.target.style, styles.submitButton);
+                    e.target.style.backgroundColor = styles.submitButton.backgroundColor;
                   }
                 }}
               >
                 {isSubmitting ? (
-                  <>⏳ Submitting Request...</>
+                  <>
+                    <span style={styles.spinner}>⏳</span>
+                    Submitting Request...
+                  </>
                 ) : (
-                  <>✅ Submit Service Request</>
+                  <>
+                    <span style={{ marginRight: '0.5rem' }}>📤</span>
+                    Submit Service Request
+                  </>
                 )}
               </button>
             </div>
           </div>
-        </div>
+        </form>
       </div>
 
       {/* Success Modal */}
       {showSuccessMessage && (
         <div style={styles.modal} onClick={() => setShowSuccessMessage(false)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.successIcon}>✅</div>
-            <h2>Request Submitted Successfully!</h2>
-            <p>
-              Thank you for your request. Your service request has been submitted successfully and will be reviewed by our team.
+            <span style={styles.modalIcon}>✅</span>
+            <h3 style={styles.modalTitle}>Request Submitted Successfully!</h3>
+            <p style={styles.modalText}>
+              Thank you for your request. Your service request has been submitted and will be reviewed by our team.
             </p>
             {documentId && (
-              <div
-                style={{
-                  background: '#d4edda',
-                  color: '#155724',
-                  padding: '0.75rem',
-                  borderRadius: '6px',
-                  margin: '1rem 0',
-                }}
-              >
+              <div style={styles.referenceBox}>
                 <strong>Reference ID:</strong> {documentId}
               </div>
             )}
@@ -902,11 +1011,14 @@ const ExternalServiceForm = () => {
       {showErrorMessage && (
         <div style={styles.modal} onClick={() => setShowErrorMessage(false)}>
           <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.errorIcon}>❌</div>
-            <h2>Submission Error</h2>
-            <p>{errorMessage}</p>
+            <span style={styles.modalIcon}>❌</span>
+            <h3 style={styles.modalTitle}>Submission Error</h3>
+            <p style={styles.modalText}>{errorMessage}</p>
             <button
-              style={{ ...styles.closeButton, background: '#e74c3c' }}
+              style={{
+                ...styles.closeButton,
+                ...styles.closeButtonError,
+              }}
               onClick={() => setShowErrorMessage(false)}
             >
               Close
@@ -914,6 +1026,15 @@ const ExternalServiceForm = () => {
           </div>
         </div>
       )}
+
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
     </div>
   );
 };
