@@ -2696,6 +2696,7 @@ const renderProductSearch = () => (
                 {renderBasket()}
                 {renderProductSearch()}
                 {renderProductsTable()}
+                
               </>
             )}
             {activeSection === "external" && !selectedExternalRequest && renderExternalRequests()}
