@@ -8,7 +8,6 @@ import {
   Button,
   Modal,
   Form,
-  InputGroup,
   Alert,
   ListGroup,
   Badge,
@@ -32,252 +31,24 @@ import {
 } from "react-icons/fa";
 import Select from "react-select";
 import { useNavigate } from "react-router-dom";
-import "./midnight.css";
+import "../midnight.css";
 import { PDFDocument } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import loadingSvg from "./Loading.svg";
 
-const styles = {
-  pageContainer: {
-    backgroundColor: "#f8f9fa",
-    minHeight: "100vh",
-    paddingTop: "3rem",
-    paddingBottom: "2rem",
-    width: "100vw",
-    margin: 0,
-    position: "absolute",
-    left: 0,
-    overflow: "hidden",
-  },
-  headerTitle: {
-    color: "#2c3e50",
-    fontWeight: "bold",
-    borderBottom: "2px solid #3498db",
-    paddingBottom: "0.75rem",
-    marginBottom: "0.5rem",
-    fontSize: "2rem",
-  },
-  card: {
-    borderRadius: "0.5rem",
-    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
-    border: "none",
-    transition: "transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
-    marginBottom: "1.5rem",
-  },
-  cardHover: {
-    transform: "translateY(-3px)",
-    boxShadow: "0 6px 12px rgba(0, 0, 0, 0.15)",
-  },
-  cardHeader: {
-    backgroundColor: "#ffffff",
-    borderBottom: "1px solid rgba(0, 0, 0, 0.08)",
-    padding: "1rem 1.25rem",
-    fontWeight: "600",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  cardHeaderIcon: {
-    marginRight: "0.5rem",
-    color: "#3498db",
-  },
-  primaryButton: {
-    backgroundColor: "#3498db",
-    borderColor: "#3498db",
-    boxShadow: "0 2px 4px rgba(52, 152, 219, 0.3)",
-    transition: "all 0.2s",
-  },
-  secondaryButton: {
-    backgroundColor: "#95a5a6",
-    borderColor: "#95a5a6",
-    boxShadow: "0 2px 4px rgba(149, 165, 166, 0.3)",
-    transition: "all 0.2s",
-  },
-  dangerButton: {
-    backgroundColor: "#e74c3c",
-    borderColor: "#e74c3c",
-    boxShadow: "0 2px 4px rgba(231, 76, 60, 0.3)",
-    transition: "all 0.2s",
-  },
-  successButton: {
-    backgroundColor: "#2ecc71",
-    borderColor: "#2ecc71",
-    boxShadow: "0 2px 4px rgba(46, 204, 113, 0.3)",
-    transition: "all 0.2s",
-  },
-  buttonHover: {
-    transform: "translateY(-1px)",
-    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)",
-  },
-  table: {
-    boxShadow: "0 2px 3px rgba(0, 0, 0, 0.05)",
-    borderRadius: "0.5rem",
-    overflow: "hidden",
-  },
-  navItem: {
-    margin: "0.25rem 0",
-    borderRadius: "0.5rem",
-    fontWeight: "500",
-    transition: "all 0.3s",
-  },
-  navItemActive: {
-    backgroundColor: "#3498db !important",
-    color: "white !important",
-    boxShadow: "0 2px 5px rgba(52, 152, 219, 0.5)",
-  },
-  sidebar: {
-    backgroundColor: "#ffffff",
-    borderRadius: "0.5rem",
-    padding: "1.5rem",
-    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.08)",
-    position: "sticky",
-    top: "1rem",
-  },
-  badge: {
-    padding: "0.5em 0.75em",
-    borderRadius: "30px",
-    fontWeight: "normal",
-    fontSize: "0.75rem",
-  },
-  infoBox: {
-    borderLeft: "4px solid #3498db",
-    backgroundColor: "rgba(52, 152, 219, 0.1)",
-    padding: "1rem",
-    borderRadius: "0 0.5rem 0.5rem 0",
-    marginBottom: "1rem",
-  },
-  paginationContainer: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: "1.5rem",
-  },
-  paginationButton: {
-    display: "flex",
-    alignItems: "center",
-    padding: "0.4rem 0.8rem",
-  },
-  tableHeader: {
-    backgroundColor: "#f8f9fa",
-    color: "#2c3e50",
-    fontWeight: "600",
-  },
-  searchContainer: {
-    display: "flex",
-    gap: "0.75rem",
-    alignItems: "center",
-  },
-  summaryCard: {
-    backgroundColor: "white",
-    borderRadius: "0.5rem",
-    padding: "1rem",
-    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.08)",
-    marginBottom: "1rem",
-  },
-  dataRow: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "0.5rem",
-    marginBottom: "0.5rem",
-  },
-  dataLabel: {
-    fontWeight: "600",
-    color: "#7f8c8d",
-    fontSize: "0.875rem",
-    marginBottom: "0.25rem",
-    display: "flex",
-    alignItems: "center",
-  },
-  dataIcon: {
-    marginRight: "0.5rem",
-    color: "#3498db",
-  },
-  dataValue: {
-    color: "#2c3e50",
-    fontSize: "1rem",
-  },
-};
-
+import styles from "../components/salecoStyles";
+import LoadingSpinner from "../components/LoadingSpinner";
+import SearchInput from "../components/SearchInput";
+import { useDebounce } from "../components/hooks";
+import {
+  groupByDocumentId,
+  getFirstNonEmptyValue,
+  getFirstValue,
+  formatDateField,
+  cleanString,
+  extractDepartment,
+} from "../components/salecoUtils";
 const pageSize = 25;
 
-const LoadingSpinner = React.memo(({ size = "60px" }) => (
-  <div
-    className="text-center my-4 d-flex justify-content-center align-items-center"
-    style={{ height: size }}
-  >
-    <img src={loadingSvg} alt="Loading..." style={{ height: size, width: size }} />
-  </div>
-));
-
-const SearchInput = React.memo(({ placeholder, value, onChange }) => (
-  <InputGroup className="mb-3">
-    <InputGroup.Text style={{ backgroundColor: "#f8f9fa", border: "1px solid #e9ecef" }}>
-      <FaSearch style={{ color: "#3498db" }} />
-    </InputGroup.Text>
-    <Form.Control
-      type="text"
-      placeholder={placeholder}
-      value={value}
-      onChange={onChange}
-      style={{
-        border: "1px solid #e9ecef",
-        boxShadow: "none",
-        padding: "0.6rem 1rem",
-        fontSize: "0.95rem",
-      }}
-    />
-  </InputGroup>
-));
-
-function useDebounce(value, delay) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debounced;
-}
-
-const groupByDocumentId = (documents) =>
-  documents.reduce((groups, item) => {
-    if (!groups[item.document_id]) {
-      groups[item.document_id] = [];
-    }
-    groups[item.document_id].push(item);
-    return groups;
-  }, {});
-
-const getFirstNonEmptyValue = (field, items) => {
-  for (let item of items) {
-    if (item[field] && item[field].toString().trim() !== "") {
-      return item[field].toString().trim();
-    }
-  }
-  return "";
-};
-
-const getFirstValue = (field, items) =>
-  items[0] && items[0][field] ? items[0][field].toString().trim() : "";
-
-const formatDateField = (dateStr) => {
-  if (!dateStr) return "N/A";
-  return new Date(dateStr).toLocaleDateString("en-GB");
-};
-
-const cleanString = (str) => (str ? str.toString().trim() : "");
-
-const extractDepartment = (salecoName) => {
-  if (!salecoName) return { nameWithoutDepartment: "N/A", departmentName: "N/A" };
-  const keyword = "แผนก";
-  const idx = salecoName.indexOf(keyword);
-  if (idx !== -1) {
-    const departmentName = salecoName.substring(idx + keyword.length).trim();
-    const nameWithoutDepartment = salecoName.substring(0, idx).trim();
-    const cleanDept = departmentName.replace(/[^a-zA-Z0-9ก-๙\s]/g, "").trim();
-    return { nameWithoutDepartment, departmentName: cleanDept || "N/A" };
-  }
-  return { nameWithoutDepartment: salecoName, departmentName: "N/A" };
-};
 
 const SaleCoRequests = () => {
   const navigate = useNavigate();
