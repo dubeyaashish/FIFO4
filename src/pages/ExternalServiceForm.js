@@ -26,6 +26,9 @@ const ExternalServiceForm = () => {
     propertyAddress: '',
   });
 
+  // NEW: Destination selection state
+  const [selectedDestination, setSelectedDestination] = useState('saleco'); // 'saleco' or 'saleco-pbth'
+
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
@@ -50,6 +53,45 @@ const ExternalServiceForm = () => {
     serviceFrequency: false,
     warrantyParts: false,
   });
+
+  // NEW: User data state
+  const [userData, setUserData] = useState({
+    department: '',
+    fullName: '',
+  });
+
+  // Fetch user details and store department in localStorage
+  useEffect(() => {
+    const fetchUserDetails = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await fetch('https://saleco.ruu-d.com/user-details', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch user details');
+        
+        const data = await response.json();
+        const userDept = data.department || '';
+        const userFullName = data.fullName || '';
+        
+        // Store in localStorage
+        localStorage.setItem('userDepartment', userDept);
+        localStorage.setItem('userName', userFullName);
+        
+        setUserData({
+          department: userDept,
+          fullName: userFullName,
+        });
+      } catch (error) {
+        console.error('Error fetching user details:', error);
+      }
+    };
+
+    fetchUserDetails();
+  }, []);
 
   // Fetch insurance type data
   useEffect(() => {
@@ -136,6 +178,84 @@ const ExternalServiceForm = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // NEW: Function to find SaleCo พบธ user by department
+const findSaleCoPageThUser = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    console.log('🔍 Finding ANY พบธ user...'); // Debug log
+    
+    // Removed department parameter - just find any พบธ user
+    const response = await fetch(`https://saleco.ruu-d.com/users/find-saleco-pbth`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log('📡 Find พบธ user response status:', response.status); // Debug log
+
+    if (!response.ok) {
+      throw new Error(`Failed to find SaleCo พบธ user: ${response.status}`);
+    }
+
+    const userData = await response.json();
+    console.log('👤 Found พบธ user:', userData); // Debug log
+    return userData;
+  } catch (error) {
+    console.error('❌ Error finding SaleCo พบธ user:', error);
+    throw error;
+  }
+};
+  // NEW: Function to send Telegram message with confirm button
+  const sendTelegramWithConfirmButton = async (chatId, requestData, documentId) => {
+    const telegramMessage = `🔔 <b>New External Service Request - SaleCo พบธ</b>
+
+📄 <b>Document ID:</b> ${documentId}
+👤 <b>Customer:</b> ${requestData.customerName}
+📍 <b>Address:</b> ${requestData.customerAddress}
+📞 <b>Phone:</b> ${requestData.phone_number}
+📧 <b>Email:</b> ${requestData.email}
+🏢 <b>Site:</b> ${requestData.siteName}
+📦 <b>Product:</b> ${requestData.product_id} (Qty: ${requestData.quantity})
+💬 <b>Remark:</b> ${requestData.remark || 'N/A'}
+
+<i>Please confirm to forward this request to SaleCo team.</i>`;
+
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: '✅ Confirm',
+            callback_data: `confirm_pbth_${documentId}`
+          }
+        ]
+      ]
+    };
+
+    try {
+      const response = await fetch('https://api.telegram.org/bot7646625188:AAGS-NqBl3rUU9AlC9a01wzlbaqs6spBf7M/sendMessage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: telegramMessage,
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send Telegram message');
+      }
+
+      console.log('Telegram message sent successfully to SaleCo พบธ');
+    } catch (error) {
+      console.error('Error sending Telegram message:', error);
+      throw error;
+    }
+  };
+
   // Handle form submission with improved data mapping
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -149,22 +269,22 @@ const ExternalServiceForm = () => {
     try {
       // Create payload that matches your backend's exact field names
       const payload = {
-        // Customer information (matches your backend fields exactly)
+        // Customer information
         customerName: contactData.fullName,
         customerAddress: `${locationData.address}, ${locationData.subDistrict}, ${locationData.district}, ${locationData.province}, ${locationData.postalCode}`,
-        phone_number: contactData.phoneNumber,  // Fixed: phone_number not phoneNumber
+        phone_number: contactData.phoneNumber,
         email: contactData.email,
         
         // Location information
         siteName: locationData.siteName,
         billingAddress: locationData.billingAddress || locationData.address,
-        property_address: contactData.propertyAddress || locationData.address,  // Fixed: property_address not propertyAddress
+        property_address: contactData.propertyAddress || locationData.address,
         
         // Product information
-        product_id: contactData.productCode,  // Fixed: product_id not productCode
+        product_id: contactData.productCode,
         quantity: parseInt(contactData.quantity) || 1,
         
-        // Warranty information (correct field names)
+        // Warranty information
         warrantyStartDate: contactData.warrantyStartDate || null,
         warrantyPeriod: contactData.warrantyPeriod || null,
         warrantyParts: contactData.warrantyParts || null,
@@ -175,30 +295,42 @@ const ExternalServiceForm = () => {
         requestType: 'customer_service',
         wantDate: new Date().toISOString().split('T')[0],
         
-        // Request details as array (your backend expects this)
+        // Request details as array
         requestDetails: [`Service request for ${contactData.productCode} (Qty: ${contactData.quantity}) at ${locationData.siteName}`],
         
         // Remark for additional notes
         remark: contactData.warrantyParts ? `Warranty parts: ${contactData.warrantyParts}` : 'External customer service request',
+        
+        // NEW: Add sender department info
+        senderDepartment: userData.department,
+        senderName: userData.fullName,
       };
 
-      console.log('Sending payload:', payload); // Debug log
+      // Add status based on destination
+      const requestPayload = {
+        ...payload,
+        status: selectedDestination === 'saleco-pbth' ? 'Pending SaleCo พบธ Approval' : 'Pending External Review'
+      };
 
-      const response = await fetch('https://saleco.ruu-d.com/external/service-request', {
+    console.log('🔍 FRONTEND PAYLOAD:', JSON.stringify(requestPayload, null, 2));
+console.log('🔍 Product ID being sent:', requestPayload.product_id);
+console.log('🔍 Contact data product code:', contactData.productCode);
+console.log('🔍 Selected destination:', selectedDestination);
+const endpoint = selectedDestination === 'saleco-pbth' 
+  ? 'https://saleco.ruu-d.com/external/service-request-pbth'  // พบธ endpoint
+  : 'https://saleco.ruu-d.com/external/service-request';      // Direct endpoint
+
+const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(requestPayload),
       });
 
-      // Get response text first to see what the server is returning
       const responseText = await response.text();
-      console.log('Server response status:', response.status); // Debug log
-      console.log('Server response:', responseText); // Debug log
 
       if (!response.ok) {
-        // Try to parse error details
         let errorMessage = `Server error: ${response.status}`;
         try {
           const errorData = JSON.parse(responseText);
@@ -209,7 +341,6 @@ const ExternalServiceForm = () => {
         throw new Error(errorMessage);
       }
 
-      // Parse successful response
       let result;
       try {
         result = JSON.parse(responseText);
@@ -217,8 +348,32 @@ const ExternalServiceForm = () => {
         result = { message: 'Request submitted successfully', success: true };
       }
 
-      setDocumentId(result.documentId || result.document_id || result.id || `EXT-${Date.now()}`);
+      const documentId = result.documentId || result.document_id || result.id || `EXT-${Date.now()}`;
+      setDocumentId(documentId);
+
+      // Handle SaleCo พบธ flow - send Telegram for approval
+if (selectedDestination === 'saleco-pbth') {
+  try {
+    console.log('🔍 Looking for ANY พบธ user in the system...');
+    
+    // No need to check department anymore - just find any พบธ user
+    const saleCoPageThUser = await findSaleCoPageThUser();
+    
+    if (saleCoPageThUser && saleCoPageThUser.telegramChatId) {
+      // Send Telegram message with confirm button
+      await sendTelegramWithConfirmButton(saleCoPageThUser.telegramChatId, requestPayload, documentId);
+      
       setShowSuccessMessage(true);
+      alert(`Request sent to SaleCo พบธ for approval!\nDocument ID: ${documentId}`);
+    } else {
+      throw new Error('No SaleCo พบธ user found in the system');
+    }
+  } catch (error) {
+    console.error('❌ Error with SaleCo พบธ flow:', error);
+    alert(`Error: ${error.message}`);
+    setShowSuccessMessage(true);
+  }
+}
 
       // Reset form
       setLocationData({
@@ -243,6 +398,8 @@ const ExternalServiceForm = () => {
         propertyAddress: '',
       });
       setErrors({});
+      setSelectedDestination('saleco'); // Reset to default
+
     } catch (error) {
       console.error('Error submitting form:', error);
       setErrorMessage(error.message || 'An error occurred while submitting your request. Please try again.');
@@ -547,6 +704,33 @@ const ExternalServiceForm = () => {
       display: 'inline-block',
       marginRight: '0.5rem',
     },
+    // NEW: Radio button styles
+    radioGroup: {
+      display: 'flex',
+      gap: '1rem',
+      marginBottom: '1rem',
+    },
+    radioOption: {
+      display: 'flex',
+      alignItems: 'center',
+      padding: '0.75rem 1rem',
+      border: '2px solid #ddd',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      transition: 'all 0.2s',
+      backgroundColor: 'white',
+    },
+    radioOptionSelected: {
+      borderColor: '#007bff',
+      backgroundColor: '#f0f8ff',
+    },
+    radioInput: {
+      marginRight: '0.5rem',
+    },
+    radioLabel: {
+      fontWeight: '500',
+      margin: 0,
+    },
   };
 
   return (
@@ -558,11 +742,68 @@ const ExternalServiceForm = () => {
             <span style={styles.headerIcon}>📦</span>
             <h1 style={styles.title}>Customer Service Request</h1>
             <p style={styles.subtitle}>Submit your service request and our team will process it promptly</p>
+            {userData.department && (
+              <p style={{ ...styles.subtitle, marginTop: '0.5rem', fontWeight: 'bold' }}>
+                Department: {userData.department}
+              </p>
+            )}
           </div>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit}>
+          {/* NEW: Destination Selection */}
+          <div style={styles.card}>
+            <div style={styles.sectionHeader}>
+              <span style={styles.sectionIcon}>🎯</span>
+              <h2 style={styles.sectionTitle}>Request Destination</h2>
+            </div>
+            <div style={styles.sectionContent}>
+              <div style={styles.radioGroup}>
+                <div 
+                  style={{
+                    ...styles.radioOption,
+                    ...(selectedDestination === 'saleco' ? styles.radioOptionSelected : {})
+                  }}
+                  onClick={() => setSelectedDestination('saleco')}
+                >
+                  <input
+                    type="radio"
+                    name="destination"
+                    value="saleco"
+                    checked={selectedDestination === 'saleco'}
+                    onChange={() => setSelectedDestination('saleco')}
+                    style={styles.radioInput}
+                  />
+                  <label style={styles.radioLabel}>SaleCo (Direct)</label>
+                </div>
+                <div 
+                  style={{
+                    ...styles.radioOption,
+                    ...(selectedDestination === 'saleco-pbth' ? styles.radioOptionSelected : {})
+                  }}
+                  onClick={() => setSelectedDestination('saleco-pbth')}
+                >
+                  <input
+                    type="radio"
+                    name="destination"
+                    value="saleco-pbth"
+                    checked={selectedDestination === 'saleco-pbth'}
+                    onChange={() => setSelectedDestination('saleco-pbth')}
+                    style={styles.radioInput}
+                  />
+                  <label style={styles.radioLabel}>SaleCo พบธ (Requires Approval)</label>
+                </div>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '0.5rem' }}>
+                {selectedDestination === 'saleco' 
+                  ? '📧 Request will be sent directly to SaleCo team'
+                  : '👥 Request will be sent to SaleCo พบธ in your department for approval first'
+                }
+              </div>
+            </div>
+          </div>
+
           {/* Location Information Section */}
           <div style={styles.card}>
             <div style={styles.sectionHeader}>
@@ -974,7 +1215,10 @@ const ExternalServiceForm = () => {
                 ) : (
                   <>
                     <span style={{ marginRight: '0.5rem' }}>📤</span>
-                    Submit Service Request
+                    {selectedDestination === 'saleco-pbth' 
+                      ? 'Send to SaleCo พบธ for Approval' 
+                      : 'Submit Service Request'
+                    }
                   </>
                 )}
               </button>
@@ -990,7 +1234,10 @@ const ExternalServiceForm = () => {
             <span style={styles.modalIcon}>✅</span>
             <h3 style={styles.modalTitle}>Request Submitted Successfully!</h3>
             <p style={styles.modalText}>
-              Thank you for your request. Your service request has been submitted and will be reviewed by our team.
+              {selectedDestination === 'saleco-pbth' 
+                ? 'Your request has been sent to SaleCo พบธ for approval. You will be notified once it is reviewed.'
+                : 'Thank you for your request. Your service request has been submitted and will be reviewed by our team.'
+              }
             </p>
             {documentId && (
               <div style={styles.referenceBox}>

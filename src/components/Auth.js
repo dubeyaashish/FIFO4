@@ -46,6 +46,7 @@ const Auth = () => {
           localStorage.setItem("role", data.user.role);
           localStorage.setItem("name", data.user.userName);
 
+          // Updated role-based routing
           const role = data.user.role;
           if (role === "Sale-Co") {
             window.location.href = "/sid/saleco";
@@ -53,6 +54,10 @@ const Auth = () => {
             window.location.href = "/sid/inventory";
           } else if (role === "QCM") {
             window.location.href = "/sid/qcm";
+          } else if (role === "Sale") {
+            window.location.href = "/sid/external-request";
+          } else if (role === "SaleCo พบธ") {
+            window.location.href = "/sid/saleco";
           } else {
             setError("Unknown role");
           }
@@ -149,6 +154,7 @@ const Auth = () => {
         localStorage.setItem("role", data.user.role);
         localStorage.setItem("name", data.user.userName);
 
+        // Updated role-based routing
         const role = data.user.role;
         if (role === "Sale-Co") {
           window.location.href = "/sid/saleco";
@@ -156,6 +162,10 @@ const Auth = () => {
           window.location.href = "/sid/inventory";
         } else if (role === "QCM") {
           window.location.href = "/sid/qcm";
+        } else if (role === "Sale") {
+          window.location.href = "/sid/external-request";
+        } else if (role === "SaleCo พบธ") {
+          window.location.href = "/sid/saleco";
         } else {
           setError("Unknown role");
         }
@@ -222,6 +232,7 @@ const Auth = () => {
         localStorage.setItem("role", data.user.role);
         localStorage.setItem("name", data.user.userName);
 
+        // Updated role-based routing
         const role = data.user.role;
         if (role === "Sale-Co") {
           window.location.href = "/sid/saleco";
@@ -229,6 +240,10 @@ const Auth = () => {
           window.location.href = "/sid/inventory";
         } else if (role === "QCM") {
           window.location.href = "/sid/qcm";
+        } else if (role === "Sale") {
+          window.location.href = "/sid/external-request";
+        } else if (role === "SaleCo พบธ") {
+          window.location.href = "/sid/saleco";
         } else {
           setError("Unknown role");
         }
@@ -275,6 +290,7 @@ const Auth = () => {
       localStorage.setItem("role", data.user.role);
       localStorage.setItem("name", data.user.userName);
 
+      // Updated role-based routing
       const role = data.user.role;
       if (role === "Sale-Co") {
         window.location.href = "/sid/saleco";
@@ -282,6 +298,10 @@ const Auth = () => {
         window.location.href = "/sid/inventory";
       } else if (role === "QCM") {
         window.location.href = "/sid/qcm";
+      } else if (role === "Sale") {
+        window.location.href = "/sid/external-request";
+      } else if (role === "SaleCo พบธ") {
+        window.location.href = "/sid/saleco";
       } else {
         setError("Unknown role");
       }
@@ -505,6 +525,8 @@ const Auth = () => {
                               <option value="Sale-Co">Sale-Co</option>
                               <option value="Inventory">Inventory</option>
                               <option value="QCM">QCM</option>
+                              <option value="Sale">Sale</option>
+                              <option value="SaleCo พบธ">SaleCo พบธ</option>
                             </select>
                           </div>
                           <div className="mb-3">
@@ -628,6 +650,8 @@ const Auth = () => {
                               <option value="Sale-Co">Sale-Co</option>
                               <option value="Inventory">Inventory</option>
                               <option value="QCM">QCM</option>
+                              <option value="Sale">Sale</option>
+                              <option value="SaleCo พบธ">SaleCo พบธ</option>
                             </select>
                           </div>
                           <div className="mb-3">
